@@ -1,0 +1,20 @@
+{
+  "name": "claude-p-proxy",
+  "version": "0.1.0",
+  "description": "개인용: claude -p(Claude 구독)를 OpenAI/Anthropic API 호환으로 쓰는 로컬 서버",
+  "type": "module",
+  "bin": {
+    "claude-p-proxy": "server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.312"
+  }
+}
