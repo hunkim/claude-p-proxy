@@ -16,6 +16,8 @@ npm start          # http://127.0.0.1:8787
 
 이미 `claude`를 전역 설치해 쓰고 있다면 `npm install` 없이 `node server.mjs`만 해도 됩니다.
 
+포트는 `npm start -- --port 9000`으로 바꿀 수 있습니다. 지정하지 않았는데 8787이 사용 중이면 8788, 8789…로 자동으로 넘어가니 실제 주소는 시작 로그에서 확인하세요.
+
 ## 사용
 
 ```python
@@ -47,7 +49,7 @@ Open WebUI, LibreChat 같은 채팅 UI에는 OpenAI 호환 주소로 `http://127
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `HOST` / `PORT` | `127.0.0.1` / `8787` | |
+| `HOST` / `PORT` | `127.0.0.1` / `8787` | `--port`가 `PORT`보다 우선 |
 | `DEFAULT_MODEL` | `sonnet` | |
 | `MAX_CONCURRENT` | `2` | 동시에 띄울 `claude` 프로세스 수 |
 | `LOCAL_API_KEY` | (없음) | 설정하면 `Authorization: Bearer` 또는 `x-api-key` 확인 |

@@ -20,9 +20,12 @@ function findClaude() {
   return existsSync(local) ? local : "claude";
 }
 
+// --port 9000 (또는 PORT=9000). 직접 지정하지 않았으면 8787이 사용 중일 때 다음 빈 포트로 넘어감
+const argPort = process.argv.includes("--port") ? process.argv[process.argv.indexOf("--port") + 1] : undefined;
 const CFG = {
   host: process.env.HOST || "127.0.0.1",           // 로컬에서만 접근 (외부 공개 금지)
-  port: Number(process.env.PORT || 8787),
+  port: Number(argPort || process.env.PORT || 8787),
+  portExplicit: Boolean(argPort || process.env.PORT),
   apiKey: process.env.LOCAL_API_KEY || "",          // 설정하면 Bearer / x-api-key 검사
   claudeBin: findClaude(),
   defaultModel: process.env.DEFAULT_MODEL || "sonnet",
@@ -269,6 +272,7 @@ function release() { const next = queue.shift(); if (next) next(); else running-
 async function runClaude({ input, system, model, effort, onDelta, signal }) {
   await acquire();
   try {
+    if (signal?.aborted) throw new Error("client disconnected");   // 대기 중 연결이 끊겼으면 실행 안 함
     return await new Promise((resolve, reject) => {
       const args = [
         "-p",
@@ -354,7 +358,8 @@ function sse(res) {
 }
 async function readJson(req) {
   let body = ""; for await (const c of req) body += c;
-  return body ? JSON.parse(body) : {};
+  try { return body ? JSON.parse(body) : {}; }
+  catch (e) { throw Object.assign(new Error(`invalid JSON body: ${e.message}`), { status: 400 }); }
 }
 function authorized(req) {
   if (!CFG.apiKey) return true;
@@ -491,7 +496,7 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, { error: { type: "not_found_error", message: `${req.method} ${url.pathname}` } });
   } catch (e) {
     console.error("[error]", e.message);
-    if (!res.headersSent) send(res, 500, { error: { type: "api_error", message: e.message } });
+    if (!res.headersSent) send(res, e.status || 500, { error: { type: e.status === 400 ? "invalid_request_error" : "api_error", message: e.message } });
     else res.end();
   }
 });
@@ -506,8 +511,17 @@ if (check.error || check.status !== 0) {
 }
 console.log(`claude CLI: ${check.stdout.trim()} (${CFG.claudeBin})`);
 
-server.listen(CFG.port, CFG.host, () => {
-  console.log(`claude-p-proxy → http://${CFG.host}:${CFG.port}`);
+let port = CFG.port;
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE" && !CFG.portExplicit && port < CFG.port + 10) {
+    console.log(`포트 ${port} 사용 중 → ${port + 1} 시도`);
+    return server.listen(++port, CFG.host);
+  }
+  console.error(e.code === "EADDRINUSE" ? `${port}번 포트가 이미 사용 중입니다. --port로 다른 포트를 지정하세요.` : e.message);
+  process.exit(1);
+});
+server.listen(port, CFG.host, () => {
+  console.log(`claude-p-proxy → http://${CFG.host}:${port}`);
   console.log(`  OpenAI    : POST /v1/chat/completions`);
   console.log(`  Anthropic : POST /v1/messages`);
   console.log(`  기본 모델 : ${CFG.defaultModel}, 동시 실행 ${CFG.maxConcurrent}`);
