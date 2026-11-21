@@ -1,72 +1,73 @@
 # claude-p-proxy
 
-> **개인용입니다.** 내 Claude Pro/Max 구독으로 내 컴퓨터에서 나 혼자 쓰는 용도로 만들었습니다.
+> **For personal use.** Built for using my own Claude Pro/Max subscription, on my own machine, by myself.
 
-`claude -p`(Claude Code CLI)를 OpenAI / Anthropic API 호환으로 감싼 로컬 서버.
-SDK에서 `base_url`만 바꾸면 그대로 붙습니다. 텍스트, 스트리밍, 이미지 입력, function calling 지원.
+A local server that wraps `claude -p` (Claude Code CLI) in OpenAI- and Anthropic-compatible APIs.
+Point any SDK's `base_url` at it and it just works. Supports text, streaming, image input, and function calling.
+For the ChatGPT/Codex version, see [codex-p-proxy](https://github.com/hunkim/codex-p-proxy).
 
-## 설치·실행
+## Install & run
 
 ```bash
 git clone https://github.com/hunkim/claude-p-proxy && cd claude-p-proxy
-npm install        # Claude Code CLI도 함께 설치됨
-npx claude         # 처음 한 번: Pro/Max 계정으로 로그인 후 종료
-npm start          # http://127.0.0.1:8787
+npm install                 # also installs the Claude Code CLI
+npx claude auth login       # first time only: sign in with your Pro/Max account
+npm start                   # http://127.0.0.1:8787
 ```
 
-이미 `claude`를 전역 설치해 쓰고 있다면 `npm install` 없이 `node server.mjs`만 해도 됩니다.
+If you already have `claude` installed globally, `node server.mjs` works without `npm install`.
 
-포트는 `npm start -- --port 9000`으로 바꿀 수 있습니다. 지정하지 않았는데 8787이 사용 중이면 8788, 8789…로 자동으로 넘어가니 실제 주소는 시작 로그에서 확인하세요.
+Change the port with `npm start -- --port 9000`. If you don't set one and 8787 is busy, it moves on to 8788, 8789, … automatically. The startup screen prints the actual `base_url` to use.
 
-## 사용
+## Usage
 
 ```python
 from openai import OpenAI
 c = OpenAI(base_url="http://127.0.0.1:8787/v1", api_key="local")
 print(c.chat.completions.create(model="sonnet",
-      messages=[{"role": "user", "content": "안녕"}]).choices[0].message.content)
+      messages=[{"role": "user", "content": "Hello"}]).choices[0].message.content)
 ```
 
 ```python
 import anthropic
 c = anthropic.Anthropic(base_url="http://127.0.0.1:8787", api_key="local")
 print(c.messages.create(model="opus", max_tokens=1024,
-      messages=[{"role": "user", "content": "안녕"}]).content[0].text)
+      messages=[{"role": "user", "content": "Hello"}]).content[0].text)
 ```
 
-Open WebUI, LibreChat 같은 채팅 UI에는 OpenAI 호환 주소로 `http://127.0.0.1:8787/v1`을 넣으면 됩니다.
+For chat UIs like Open WebUI or LibreChat, use `http://127.0.0.1:8787/v1` as the OpenAI-compatible URL.
 
-## 엔드포인트
+## Endpoints
 
-- `POST /v1/chat/completions` — OpenAI 호환
-- `POST /v1/messages` — Anthropic 호환
+- `POST /v1/chat/completions` — OpenAI-compatible
+- `POST /v1/messages` — Anthropic-compatible
 - `GET /v1/models`, `GET /health`
 
-모델 이름에 `opus`/`sonnet`/`haiku`/`fable`이 들어가면 그 모델로, `claude-sonnet-5-5`처럼 버전까지 적으면 그대로,
-`gpt-4o` 같은 나머지는 `DEFAULT_MODEL`로 갑니다. `reasoning_effort`(low~max)는 `--effort`로 넘어갑니다.
+A model name containing `opus`/`sonnet`/`haiku`/`fable` uses that model, a full ID like `claude-sonnet-5-5` is passed as is,
+and anything else (like `gpt-4o`) goes to `DEFAULT_MODEL`. `reasoning_effort` (low to max) is passed on as `--effort`.
 
-## 환경변수
+## Environment variables
 
-| 변수 | 기본값 | 설명 |
+| Variable | Default | Description |
 |---|---|---|
-| `HOST` / `PORT` | `127.0.0.1` / `8787` | `--port`가 `PORT`보다 우선 |
+| `HOST` / `PORT` | `127.0.0.1` / `8787` | `--port` takes precedence over `PORT` |
 | `DEFAULT_MODEL` | `sonnet` | |
-| `MAX_CONCURRENT` | `2` | 동시에 띄울 `claude` 프로세스 수 |
-| `LOCAL_API_KEY` | (없음) | 설정하면 `Authorization: Bearer` 또는 `x-api-key` 확인 |
-| `TIMEOUT_MS` | `300000` | 요청당 제한 시간 |
-| `DEFAULT_SYSTEM` | 간단한 지시문 | system 메시지가 없을 때 |
-| `MAX_IMAGE_BYTES` | 10MB | URL 이미지 최대 크기 |
-| `CLAUDE_BIN` | 자동 | CLI 경로 (기본: `node_modules`의 CLI → PATH의 `claude`) |
+| `MAX_CONCURRENT` | `2` | Number of `claude` processes run at once |
+| `LOCAL_API_KEY` | (none) | If set, checks `Authorization: Bearer` or `x-api-key` |
+| `TIMEOUT_MS` | `300000` | Time limit per request |
+| `DEFAULT_SYSTEM` | A short instruction | Used when there's no system message |
+| `MAX_IMAGE_BYTES` | 10MB | Max size for URL images |
+| `CLAUDE_BIN` | auto | CLI path (default: the CLI in `node_modules` → `claude` on PATH) |
 
-## 동작 방식
+## How it works
 
-- 요청마다 `claude -p`를 띄웁니다. Claude Code 내장 도구·MCP·세션 저장은 끄고 빈 임시 폴더에서 실행합니다.
-- 대화 기록은 텍스트 하나로 합치고, 이미지는 base64 이미지 블록으로 붙여 `--input-format stream-json`으로 넘깁니다. URL 이미지는 서버가 내려받습니다.
-- Function calling: 도구 정의를 시스템 프롬프트에 넣고 `<tool_calls>[...]</tool_calls>` JSON 블록으로 답하게 한 뒤, 서버가 꺼내 `tool_calls` / `tool_use` 형식으로 돌려줍니다. 인자가 스키마에 맞는다는 보장은 없으니 중요한 곳에서는 검증하세요.
-- `ANTHROPIC_API_KEY`는 자식 프로세스에서 지워 구독 한도만 씁니다.
+- Each request runs `claude -p` in an empty temp folder, with Claude Code's built-in tools, MCP, and session saving turned off.
+- The conversation history is merged into one text prompt, and images are attached as base64 image blocks via `--input-format stream-json`. The server downloads URL images itself.
+- Function calling: tool definitions go into the system prompt, the model is asked to answer with a `<tool_calls>[...]</tool_calls>` JSON block, and the server extracts it and returns it as `tool_calls` / `tool_use`. Arguments aren't guaranteed to match the schema, so validate them where it matters.
+- `ANTHROPIC_API_KEY` is removed from the child process so only your subscription is used.
 
-## 한계
+## Limitations
 
-- 첫 토큰까지 수 초 (프로세스 시작 비용)
-- temperature·max_tokens·stop 등은 무시, PDF·오디오 입력 미지원
-- 사용량은 Claude 앱·Claude Code와 같은 구독 한도에서 빠집니다
+- A few seconds until the first token (process startup)
+- temperature, max_tokens, stop, etc. are ignored; PDF and audio input aren't supported
+- Usage counts against the same subscription limits as the Claude app and Claude Code

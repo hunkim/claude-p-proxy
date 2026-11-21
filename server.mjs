@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// claude-p-proxy — OpenAI / Anthropic API 호환 로컬 서버 (claude -p 백엔드)
-// 개인용 전용: Claude Pro/Max 구독으로 로그인된 Claude Code CLI를 호출합니다.
-// 지원: 텍스트, 스트리밍, 이미지 입력, function calling(tool use). 의존성 없음 (Node 18+).
-// 실행: node server.mjs
+// claude-p-proxy — local OpenAI / Anthropic-compatible API server backed by `claude -p`
+// Personal use only: calls the Claude Code CLI logged in with your Claude Pro/Max subscription.
+// Supports: text, streaming, image input, function calling (tool use). No dependencies (Node 18+).
+// Run: node server.mjs
 
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
@@ -12,7 +12,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-// claude CLI 찾기: CLAUDE_BIN → npm install로 함께 깔린 CLI → PATH의 claude
+// Find the claude CLI: CLAUDE_BIN → CLI installed by npm install → claude on PATH
 const HERE = dirname(fileURLToPath(import.meta.url));
 function findClaude() {
   if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
@@ -20,13 +20,13 @@ function findClaude() {
   return existsSync(local) ? local : "claude";
 }
 
-// --port 9000 (또는 PORT=9000). 직접 지정하지 않았으면 8787이 사용 중일 때 다음 빈 포트로 넘어감
+// --port 9000 (or PORT=9000). If not set explicitly and 8787 is busy, move on to the next free port
 const argPort = process.argv.includes("--port") ? process.argv[process.argv.indexOf("--port") + 1] : undefined;
 const CFG = {
-  host: process.env.HOST || "127.0.0.1",           // 로컬에서만 접근 (외부 공개 금지)
+  host: process.env.HOST || "127.0.0.1",           // local access only (do not expose)
   port: Number(argPort || process.env.PORT || 8787),
   portExplicit: Boolean(argPort || process.env.PORT),
-  apiKey: process.env.LOCAL_API_KEY || "",          // 설정하면 Bearer / x-api-key 검사
+  apiKey: process.env.LOCAL_API_KEY || "",          // if set, check Bearer / x-api-key
   claudeBin: findClaude(),
   defaultModel: process.env.DEFAULT_MODEL || "sonnet",
   maxConcurrent: Number(process.env.MAX_CONCURRENT || 2),
@@ -36,22 +36,22 @@ const CFG = {
     "You are a helpful assistant. Answer the user's latest message directly.",
 };
 
-// 빈 작업 디렉터리: CLAUDE.md 등 프로젝트 컨텍스트가 섞이지 않게
+// Empty working directory: keeps project context (CLAUDE.md etc.) out
 const WORKDIR = mkdtempSync(join(tmpdir(), "claude-proxy-"));
 const TAG_OPEN = "<tool_calls>", TAG_CLOSE = "</tool_calls>";
 const shortId = () => randomUUID().replace(/-/g, "").slice(0, 24);
 
-// ---------- 모델 이름 매핑 ----------
+// ---------- Model name mapping ----------
 function mapModel(name) {
   if (!name) return CFG.defaultModel;
   const n = String(name).toLowerCase();
-  if (/^claude-.*\d/.test(n)) return name;                 // 전체 모델 ID(claude-opus-5-5 등)는 그대로
+  if (/^claude-.*\d/.test(n)) return name;                 // full model IDs (claude-opus-5-5 etc.) as is
   for (const alias of ["opus", "sonnet", "haiku", "fable"]) if (n.includes(alias)) return alias;
-  return CFG.defaultModel;                                  // gpt-4o 등 → 기본 모델
+  return CFG.defaultModel;                                  // gpt-4o etc. → default model
 }
 
 // =====================================================================
-// 1. 입력 정규화: OpenAI / Anthropic 메시지 → 내부 형식
+// 1. Input normalization: OpenAI / Anthropic messages → internal format
 //    turn = { role: "user"|"assistant", parts: [...] }
 //    part = {kind:"text",text} | {kind:"image",url|media_type+data}
 //         | {kind:"tool_call",id,name,args} | {kind:"tool_result",id,name,parts}
@@ -117,7 +117,7 @@ function normalizeAnthropic(body) {
   return { system, turns };
 }
 
-// 도구 정의 정규화 → [{name, description, schema}]
+// Tool definitions → [{name, description, schema}]
 function normalizeTools(body) {
   const list = body.tools || (body.functions || []).map((f) => ({ type: "function", function: f }));
   return list.map((t) => t.type === "function" && t.function
@@ -126,7 +126,7 @@ function normalizeTools(body) {
     .filter((t) => t.name);
 }
 
-// tool_choice 정규화 → {mode:"auto"|"none"|"required"|"specific", name?}
+// tool_choice → {mode:"auto"|"none"|"required"|"specific", name?}
 function normalizeChoice(tc) {
   if (!tc) return { mode: "auto" };
   if (typeof tc === "string") return { mode: tc === "required" ? "required" : tc === "none" ? "none" : "auto" };
@@ -138,14 +138,14 @@ function normalizeChoice(tc) {
 }
 
 // =====================================================================
-// 2. 내부 형식 → claude -p 입력 (텍스트 + 이미지 블록)
+// 2. Internal format → claude -p input (text + image blocks)
 // =====================================================================
 async function resolveImage(p) {
   if (p.data) return p;
   const r = await fetch(p.url);
-  if (!r.ok) throw new Error(`이미지 다운로드 실패 (${r.status}): ${p.url}`);
+  if (!r.ok) throw new Error(`image download failed (${r.status}): ${p.url}`);
   const buf = Buffer.from(await r.arrayBuffer());
-  if (buf.length > CFG.maxImageBytes) throw new Error(`이미지가 너무 큼: ${p.url}`);
+  if (buf.length > CFG.maxImageBytes) throw new Error(`image too large: ${p.url}`);
   const media_type = (r.headers.get("content-type") || "image/png").split(";")[0];
   return { kind: "image", media_type, data: buf.toString("base64") };
 }
@@ -167,7 +167,7 @@ async function buildInput(turns) {
     return out.filter(Boolean).join("\n");
   };
 
-  // 같은 역할이 연속되면 합침 (예: tool 결과 여러 개)
+  // Merge consecutive turns with the same role (e.g. several tool results)
   const merged = [];
   for (const t of turns) {
     const prev = merged[merged.length - 1];
@@ -189,7 +189,7 @@ async function buildInput(turns) {
   return { text, images };
 }
 
-// 도구 사용 지시문 (시스템 프롬프트에 덧붙임)
+// Tool-use instructions (appended to the system prompt)
 function toolInstructions(tools, choice) {
   if (!tools.length || choice.mode === "none") return "";
   const defs = tools.map((t) => ({ name: t.name, description: t.description, parameters: t.schema }));
@@ -215,7 +215,7 @@ Rules:
 - ${rule}`;
 }
 
-// 모델 출력에서 도구 호출 블록 추출
+// Extract the tool-call block from model output
 function safeJson(s, fallback) {
   if (s && typeof s === "object") return s;
   try { return JSON.parse(s); } catch { return fallback; }
@@ -232,11 +232,11 @@ function parseToolCalls(text, tools) {
   const calls = (arr || [])
     .filter((c) => c && names.has(c.name))
     .map((c) => ({ name: c.name, args: safeJson(c.arguments ?? c.input ?? c.parameters, {}) ?? {} }));
-  if (!calls.length) return { text, calls: [] };           // 파싱 실패 → 일반 텍스트로 취급
+  if (!calls.length) return { text, calls: [] };           // parse failed → treat as plain text
   return { text: text.slice(0, i).trim(), calls };
 }
 
-// 스트리밍 중 "<tool_calls>" 이후 텍스트를 숨기는 필터
+// Filter that hides text after "<tool_calls>" while streaming
 function makeHoldback(enabled, emit) {
   let acc = "", sent = 0, found = false;
   return {
@@ -246,12 +246,12 @@ function makeHoldback(enabled, emit) {
       if (found) return;
       const idx = acc.indexOf(TAG_OPEN);
       if (idx >= 0) { found = true; if (idx > sent) emit(acc.slice(sent, idx)); sent = idx; return; }
-      let k = Math.min(TAG_OPEN.length - 1, acc.length);    // 태그 앞부분일 수 있는 꼬리는 보류
+      let k = Math.min(TAG_OPEN.length - 1, acc.length);    // hold back a tail that may be the start of the tag
       while (k > 0 && !TAG_OPEN.startsWith(acc.slice(-k))) k--;
       const safe = acc.length - k;
       if (safe > sent) { emit(acc.slice(sent, safe)); sent = safe; }
     },
-    finish(hasCalls) {                                     // 도구 호출이 아니었으면 남은 텍스트 방출
+    finish(hasCalls) {                                     // if it wasn't a tool call, flush the remaining text
       if (!hasCalls && acc.length > sent) emit(acc.slice(sent));
     },
     get text() { return acc; },
@@ -259,7 +259,7 @@ function makeHoldback(enabled, emit) {
 }
 
 // =====================================================================
-// 3. claude -p 실행
+// 3. Run claude -p
 // =====================================================================
 let running = 0;
 const queue = [];
@@ -268,11 +268,11 @@ function acquire() {
 }
 function release() { const next = queue.shift(); if (next) next(); else running--; }
 
-/** claude -p 실행. onDelta로 텍스트 조각 전달. 반환 { text, usage, model } */
+/** Run claude -p. Text chunks go to onDelta. Returns { text, usage, model } */
 async function runClaude({ input, system, model, effort, onDelta, signal }) {
   await acquire();
   try {
-    if (signal?.aborted) throw new Error("client disconnected");   // 대기 중 연결이 끊겼으면 실행 안 함
+    if (signal?.aborted) throw new Error("client disconnected");   // client left while queued → don't run
     return await new Promise((resolve, reject) => {
       const args = [
         "-p",
@@ -280,13 +280,13 @@ async function runClaude({ input, system, model, effort, onDelta, signal }) {
         "--output-format", "stream-json", "--verbose", "--include-partial-messages",
         "--model", model,
         "--system-prompt", system || CFG.defaultSystem,
-        "--tools", "",                  // Claude Code 내장 도구 전부 끔 (순수 챗봇)
-        "--strict-mcp-config",          // MCP 서버 로드 안 함
+        "--tools", "",                  // turn off all Claude Code built-in tools (plain chatbot)
+        "--strict-mcp-config",          // don't load MCP servers
         "--no-session-persistence",
       ];
       if (effort) args.push("--effort", effort);
       const env = { ...process.env };
-      delete env.ANTHROPIC_API_KEY;     // 구독 로그인 사용 강제 (API 과금 방지)
+      delete env.ANTHROPIC_API_KEY;     // force the subscription login (no API billing)
       const child = spawn(CFG.claudeBin, args, { cwd: WORKDIR, env, stdio: ["pipe", "pipe", "pipe"] });
 
       let buf = "", streamed = "", finalText = null, usage = {}, usedModel = model, stderr = "", errMsg = null;
@@ -315,18 +315,18 @@ async function runClaude({ input, system, model, effort, onDelta, signal }) {
       });
       child.stderr.on("data", (d) => { stderr += d; });
       child.stdin.on("error", () => {});
-      child.on("error", (e) => { clearTimeout(timer); reject(new Error(`claude 실행 실패: ${e.message}`)); });
+      child.on("error", (e) => { clearTimeout(timer); reject(new Error(`failed to run claude: ${e.message}`)); });
       child.on("close", (code) => {
         clearTimeout(timer);
         if (errMsg) return reject(new Error(errMsg));
         if (finalText == null && !streamed) {
-          return reject(new Error(`claude 종료 코드 ${code}: ${stderr.trim().slice(0, 500) || "출력 없음 (로그인/사용 한도 확인)"}`));
+          return reject(new Error(`claude exited with code ${code}: ${stderr.trim().slice(0, 500) || "no output (check login / usage limits)"}`));
         }
-        if (!streamed && finalText) onDelta?.(finalText);   // 조각이 없었으면 한 번에
+        if (!streamed && finalText) onDelta?.(finalText);   // no chunks → send it all at once
         resolve({ text: streamed || finalText || "", usage, model: usedModel });
       });
 
-      // 사용자 메시지 1개: 이미지 블록 + 텍스트 블록
+      // One user message: image blocks + text block
       const content = [];
       input.images.forEach((img, n) => {
         content.push({ type: "text", text: `[image ${n + 1}]` });
@@ -338,7 +338,7 @@ async function runClaude({ input, system, model, effort, onDelta, signal }) {
   } finally { release(); }
 }
 
-// 공통 준비: 정규화된 대화 + 도구 → runClaude 인자
+// Shared setup: normalized conversation + tools → runClaude arguments
 async function prepare(norm, body) {
   const tools = normalizeTools(body);
   const choice = normalizeChoice(body.tool_choice ?? body.function_call);
@@ -348,7 +348,7 @@ async function prepare(norm, body) {
   return { input, system, model: mapModel(body.model), effort: effortFrom(body), tools: activeTools };
 }
 
-// ---------- HTTP 유틸 ----------
+// ---------- HTTP helpers ----------
 function send(res, status, obj) {
   res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" });
   res.end(JSON.stringify(obj));
@@ -472,7 +472,7 @@ async function anthropicMessages(req, res, body, signal) {
 }
 
 // =====================================================================
-// 6. 라우팅
+// 6. Routing
 // =====================================================================
 const MODELS = ["sonnet", "opus", "haiku", "fable"];
 const server = http.createServer(async (req, res) => {
@@ -501,12 +501,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// 시작 전 CLI 확인
+// Check the CLI before starting
 const check = spawnSync(CFG.claudeBin, ["--version"], { encoding: "utf8", shell: process.platform === "win32" });
 if (check.error || check.status !== 0) {
-  console.error(`claude CLI를 찾을 수 없습니다 (${CFG.claudeBin}).
-  이 폴더에서 'npm install'을 실행하거나, 'npm i -g @anthropic-ai/claude-code'로 설치하세요.
-  설치 후 'npx claude'(또는 'claude')를 한 번 실행해 Pro/Max 구독 계정으로 로그인하세요.`);
+  console.error(`claude CLI not found (${CFG.claudeBin}).
+  Run 'npm install' in this folder, or install it with 'npm i -g @anthropic-ai/claude-code'.
+  Then run 'npx claude auth login' once to sign in with your Pro/Max subscription.`);
   process.exit(1);
 }
 console.log(`claude CLI: ${check.stdout.trim()} (${CFG.claudeBin})`);
@@ -514,10 +514,10 @@ console.log(`claude CLI: ${check.stdout.trim()} (${CFG.claudeBin})`);
 let port = CFG.port;
 server.on("error", (e) => {
   if (e.code === "EADDRINUSE" && !CFG.portExplicit && port < CFG.port + 10) {
-    console.log(`포트 ${port} 사용 중 → ${port + 1} 시도`);
+    console.log(`port ${port} is in use → trying ${port + 1}`);
     return server.listen(++port, CFG.host);
   }
-  console.error(e.code === "EADDRINUSE" ? `${port}번 포트가 이미 사용 중입니다. --port로 다른 포트를 지정하세요.` : e.message);
+  console.error(e.code === "EADDRINUSE" ? `port ${port} is already in use. Pick another one with --port.` : e.message);
   process.exit(1);
 });
 server.listen(port, CFG.host, () => {
@@ -525,10 +525,10 @@ server.listen(port, CFG.host, () => {
   console.log(`claude-p-proxy → ${base}`);
   console.log(`  OpenAI    : base_url ${base}/v1   (POST /v1/chat/completions)`);
   console.log(`  Anthropic : base_url ${base}      (POST /v1/messages)`);
-  console.log(`  api_key   : ${CFG.apiKey ? "LOCAL_API_KEY 값" : "아무 값 (예: local)"}`);
-  console.log(`  모델      : ${MODELS.join(", ")}  (기본 ${CFG.defaultModel}, 동시 실행 ${CFG.maxConcurrent})`);
+  console.log(`  api_key   : ${CFG.apiKey ? "the LOCAL_API_KEY value" : "any value (e.g. local)"}`);
+  console.log(`  models    : ${MODELS.join(", ")}  (default ${CFG.defaultModel}, ${CFG.maxConcurrent} concurrent)`);
   console.log(`
-예시:
+Example:
   curl ${base}/v1/chat/completions -H 'content-type: application/json' \\
-    -d '{"model":"sonnet","messages":[{"role":"user","content":"안녕"}]}'`);
+    -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello"}]}'`);
 });
