@@ -15,6 +15,21 @@ npx claude auth login       # first time only: sign in with your Pro/Max account
 npm start                   # http://127.0.0.1:8787
 ```
 
+`npm start` prints what you need to connect:
+
+```
+claude CLI: 2.1.312 (Claude Code) (/path/to/claude-p-proxy/node_modules/.bin/claude)
+claude-p-proxy → http://127.0.0.1:8787
+  OpenAI    : base_url http://127.0.0.1:8787/v1   (POST /v1/chat/completions)
+  Anthropic : base_url http://127.0.0.1:8787      (POST /v1/messages)
+  api_key   : any value (e.g. local)
+  models    : sonnet, opus, haiku, fable  (default sonnet, 2 concurrent)
+
+Example:
+  curl http://127.0.0.1:8787/v1/chat/completions -H 'content-type: application/json' \
+    -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello"}]}'
+```
+
 If you already have `claude` installed globally, `node server.mjs` works without `npm install`.
 
 Change the port with `npm start -- --port 9000`. If you don't set one and 8787 is busy, it moves on to 8788, 8789, … automatically. The startup screen prints the actual `base_url` to use.
