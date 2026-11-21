@@ -521,8 +521,14 @@ server.on("error", (e) => {
   process.exit(1);
 });
 server.listen(port, CFG.host, () => {
-  console.log(`claude-p-proxy → http://${CFG.host}:${port}`);
-  console.log(`  OpenAI    : POST /v1/chat/completions`);
-  console.log(`  Anthropic : POST /v1/messages`);
-  console.log(`  기본 모델 : ${CFG.defaultModel}, 동시 실행 ${CFG.maxConcurrent}`);
+  const base = `http://${CFG.host}:${port}`;
+  console.log(`claude-p-proxy → ${base}`);
+  console.log(`  OpenAI    : base_url ${base}/v1   (POST /v1/chat/completions)`);
+  console.log(`  Anthropic : base_url ${base}      (POST /v1/messages)`);
+  console.log(`  api_key   : ${CFG.apiKey ? "LOCAL_API_KEY 값" : "아무 값 (예: local)"}`);
+  console.log(`  모델      : ${MODELS.join(", ")}  (기본 ${CFG.defaultModel}, 동시 실행 ${CFG.maxConcurrent})`);
+  console.log(`
+예시:
+  curl ${base}/v1/chat/completions -H 'content-type: application/json' \\
+    -d '{"model":"sonnet","messages":[{"role":"user","content":"안녕"}]}'`);
 });
